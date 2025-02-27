@@ -1,0 +1,131 @@
+upstream pihole_backend {
+    server pihole:80 max_fails=5 fail_timeout=30s;  # Максимум 3 неудачные попытки за 30 секунд
+}
+
+upstream portainer_backend {
+    server portainer:9000 max_fails=5 fail_timeout=30s;  # Максимум 3 неудачные попытки за 30 секунд
+}
+
+upstream amnezia-wg_backend {
+    server amnezia-wg-easy:51821 max_fails=5 fail_timeout=30s;  # Максимум 3 неудачные попытки за 30 секунд
+}
+
+upstream example_backend {
+    server site:80 max_fails=5 fail_timeout=30s;  # Максимум 3 неудачные попытки за 30 секунд
+}
+
+# Конфигурация для субдомена pihole.example.com (приложение Pi-hole)
+server {
+    listen 127.0.0.1:80;
+    server_name pihole.example.com;
+    # Переадресация HTTP на HTTPS для субдомена
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen [::]:443 ssl;
+    listen 443 ssl;
+    http2 on;
+
+    server_name pihole.example.com;
+
+    include /etc/nginx/snippets/ssl.conf;
+    include /etc/nginx/snippets/security-headers.conf;    
+    
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none';" always;
+
+    # Прокси на контейнер с Pi-hole
+    location / {
+        proxy_pass http://pihole_backend;  # Убедитесь, что контейнер с Pi-hole работает на порту 80
+        proxy_buffer_size 16k;
+        proxy_buffers 4 32k;
+        proxy_busy_buffers_size 64k;
+        proxy_buffering off;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# Конфигурация для Portainer
+server {
+    listen 127.0.0.1:9000;
+    server_name portainer.example.com;
+    # Переадресация HTTP на HTTPS для субдомена
+    return 301 https://$host$request_uri;
+}
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+
+    server_name portainer.example.com;
+
+    include /etc/nginx/snippets/ssl.conf;
+    include /etc/nginx/snippets/security-headers.conf;
+
+    location / {
+        proxy_pass http://portainer_backend;  # Внутренний порт Portainer
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# Конфигурация для Amnesia-wg-easy
+server {
+    listen 127.0.0.1:51821;
+    server_name awg.example.com;
+    # Переадресация HTTP на HTTPS для субдомена
+    return 301 https://$host$request_uri;
+}
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+
+    server_name awg.example.com;
+
+    include /etc/nginx/snippets/ssl.conf;
+    include /etc/nginx/snippets/security-headers.conf;
+
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://api.dicebear.com; connect-src 'self'; font-src 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none';" always;
+
+    location / {
+        proxy_pass http://amnezia-wg_backend;  # Внутренний порт amnezia-wg-easy
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# Конфигурация для example.com
+server {
+    listen 127.0.0.1:80;
+    server_name example.com;
+    # Переадресация HTTP на HTTPS для субдомена
+    return 301 https://$host$request_uri;
+}
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+
+    server_name example.com;
+
+    include /etc/nginx/snippets/ssl.conf;
+    include /etc/nginx/snippets/security-headers.conf;
+
+
+    location / {
+        proxy_pass http://example_backend;  # Внутренний порт amnezia-wg-easy
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+

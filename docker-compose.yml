@@ -1,0 +1,134 @@
+networks:
+  dns_net:
+    external: true
+
+volumes:
+  etc_wireguard:
+
+services:
+  3x-ui:
+    image: ghcr.io/mhsanaei/3x-ui:latest
+    container_name: 3x-ui
+    hostname: xray.example.com
+    volumes:
+      - './3x-ui/db/:/etc/x-ui/'
+      - './acme/certs:/root/cert/'
+    environment:
+      XRAY_VMESS_AEAD_FORCED: "false"
+      X_UI_ENABLE_FAIL2BAN: "false"
+    tty: true
+    network_mode: host
+    restart: unless-stopped
+    pull_policy: always
+
+  nginx_proxy:
+    image: nginx:latest
+    container_name: nginx_proxy
+    restart: unless-stopped
+    volumes:
+      - ./nginx_proxy/conf.d:/etc/nginx/conf.d
+      - ./acme/certs:/etc/nginx/ssl
+      - ./nginx_proxy/snippets:/etc/nginx/snippets
+      - ./nginx_proxy/log:/var/log/nginx
+    networks:
+      - dns_net
+    ports:
+      - "6443:443"
+
+  pihole:
+    image: pihole/pihole:latest
+    container_name: pihole
+    ports:
+      - "127.0.0.1:53:53/tcp"
+      - "127.0.0.1:53:53/udp"
+    restart: unless-stopped
+    volumes:
+      - ./pihole/etc-pihole:/etc/pihole
+      - ./pihole/etc-dnsmasq.d:/etc/dnsmasq.d
+    env_file:
+      - ./pihole/.env
+    depends_on:
+      - unbound
+    networks:
+      dns_net:
+          ipv4_address: 192.168.210.30
+
+  unbound:
+    image: mvance/unbound:latest
+    container_name: unbound
+    restart: unless-stopped
+    volumes:
+      - "./unbound/forward-records.conf:/opt/unbound/etc/unbound/forward-records.conf"
+      - "./unbound/unbound.conf:/opt/unbound/etc/unbound/unbound.conf"
+    environment:
+      - TZ=Etc/UTC
+    networks:
+      dns_net:
+          ipv4_address: 192.168.210.20
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./portainer/portainer_data:/data
+    networks:
+      - dns_net
+
+  amnezia-wg-easy:
+    env_file:
+      - .env
+    image: ghcr.io/w0rng/amnezia-wg-easy
+    container_name: amnezia-wg-easy
+    volumes:
+      - etc_wireguard:/etc/wireguard
+    ports:
+      - "${WG_PORT}:${WG_PORT}/udp"
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+    devices:
+    - /dev/net/tun:/dev/net/tun
+    networks:
+      - dns_net
+
+  acme:
+    image: neilpang/acme.sh
+    container_name: acme
+    restart: unless-stopped
+    volumes:
+      - ./acme/acme_data:/acme.sh
+      - ./acme/certs:/certs
+    env_file:
+      - ./acme/.env
+    entrypoint: >
+      /bin/sh -c "
+      if [ -f /certs/fullchain.pem ]; then
+      echo 'Certificate already exists. Check if renewal is needed...';
+      /root/.acme.sh/acme.sh --renew -d example.com --ecc  || true;
+      else
+      echo 'Certificate not found. Issuing a new certificate...';
+      /root/.acme.sh/acme.sh --server letsencrypt --issue --dns dns_cf -d example.com -d *.example.com --keylength ec-256 --force;
+      /root/.acme.sh/acme.sh --install-cert -d rclog.top --ecc --key-file /certs/privkey.pem --fullchain-file /certs/fullchain.pem;
+      fi &&
+      tail -f /dev/null"
+    healthcheck:
+      test: /root/.acme.sh/acme.sh --cron || true
+      interval: 86400s
+      timeout: 10s
+      retries: 1
+    networks:
+      - dns_net
+
+  site:
+    container_name: site
+    restart: unless-stopped
+    image: nginx:alpine
+    volumes:
+      - ./site/site:/usr/share/nginx/html
+    networks:
+      - dns_net
