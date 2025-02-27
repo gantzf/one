@@ -2,6 +2,20 @@
 
 Этот проект предназначен для создания безопасного Docker-сервера с настройкой для работы с несколькими сервисами, включая Pi-hole, WireGuard, Fail2Ban и обратное прокси через Nginx. Проект использует Docker Compose для быстрого развертывания и настройки сервисов.
 
+### Архитектура проекта
+
+В следующей схеме представлено, как взаимодействуют основные компоненты системы:
+
+```
+{3x-ui_public_port - panel + subs (vless(443) + external_proxy_own_publicIP + decoy_own_site)} 
+=> {Cloudflare_proxy (rule_rewrite_uri path_rewrite_port)} 
+=> Все работает на порту 443, скрыто за Cloudflare
+
+{Nginx_proxy_publicPort = pihole + decoy + portainer + amnezia-wg} 
+=> {Cloudflare_proxy (rule_rewrite_port)} 
+=> Все работает на порту 443, скрыто за Cloudflare
+```
+
 ## Требования
 
 1. **Приобретение домена**: Для начала работы необходимо приобрести домен и перенести его на Cloudflare.
